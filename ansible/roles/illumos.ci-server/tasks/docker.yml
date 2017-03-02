@@ -1,0 +1,71 @@
+---
+#
+# Note, we rely on the "angstwad.docker_ubuntu" dependency to ensure the
+# docker package is installed and properly configured. As a result, we
+# don't do any package installation or configuration in this file.
+#
+
+- name: create docker group
+  group:
+    name: docker
+    system: yes
+
+- name: add docker groups to specified user
+  user:
+    name: ubuntu
+    append: yes
+    groups: docker
+
+#
+# TODO: This should use the illumos repository after it is created.
+#
+- name: checkout illumos-ci repository
+  git:
+    repo: https://github.com/prakashsurya/illumos-ci.git
+    dest: /mnt/illumos-ci/master
+    version: master
+    update: yes
+
+- name: build docker image
+  command: "./scripts/docker/build-jenkins-master.sh"
+  args:
+    chdir: /mnt/illumos-ci/master
+
+#
+# The Jenkins master container will run the Jenkins process using a UID
+# of 1000. Thus, we need to ensure the container's volume is configured
+# correctly, such that the Jenkins process will be able to modify files
+# contained in it.
+#
+- name: configure permissions of container volume
+  file:
+    dest: /mnt/jenkins-master
+    owner: 1000
+    group: 1000
+    mode: 0755
+    state: directory
+
+#
+# This depends on the docker image already being built and loaded on the
+# server that will run this container. We don't build and publish these
+# images to any docker image registry, so we don't have a way to pull
+# down this image if it doesn't already exist on the system.
+#
+- name: create and run container
+  docker_container:
+    name: jenkins-master
+    image: illumos/jenkins-master
+    state: started
+    ignore_image: yes
+    restart_policy: always
+    ports:
+      - 8080:8080
+      - 50000:50000
+    expose:
+      - 8080
+      - 50000
+    volumes:
+      - /mnt/jenkins-master:/var/jenkins_home
+    env:
+      JENKINS_URL: "http://{{ ansible_default_ipv4.address }}:8080"
+      JENKINS_SLAVE_AGENT_PORT: 50000

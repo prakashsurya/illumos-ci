@@ -1,0 +1,4 @@
+---
+- include: user.yml
+- include: vault.yml
+- include: docker.yml # depends on user.yml

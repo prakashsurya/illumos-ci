@@ -1,0 +1,96 @@
+- name: install vault dependencies
+  apt:
+    name: '{{ item }}'
+  with_items:
+   - unzip
+
+- name: download vault package
+  get_url:
+    url: 'https://releases.hashicorp.com/vault/0.6.1/vault_0.6.1_linux_amd64.zip'
+    checksum: 'sha256:4f248214e4e71da68a166de60cc0c1485b194f4a2197da641187b745c8d5b8be'
+    dest: /tmp/vault.zip
+
+- name: create vault directory
+  file:
+    dest: '/mnt/vault-0.6.1'
+    owner: root
+    group: root
+    state: directory
+
+- name: unarchive vault package
+  unarchive:
+    src: /tmp/vault.zip
+    dest: '/mnt/vault-0.6.1'
+    owner: root
+    group: root
+    mode: 0755
+    copy: no
+
+- name: copy vault illumosci policy file
+  copy:
+    dest: '/mnt/vault-0.6.1/illumosci-policy.hcl'
+    owner: root
+    group: root
+    mode: 0644
+    content: |
+      path "secret/illumosci/*" {
+        policy = "read"
+      }
+
+- name: copy vault configuration file
+  copy:
+    dest: '/mnt/vault-0.6.1/config.hcl'
+    owner: root
+    group: root
+    mode: 0644
+    content: |
+      disable_mlock = true
+      backend "file" {
+        path = "/mnt/vault"
+      }
+
+      /*
+       * This allows us to log in to the server, and run vault directly to
+       * perform any configure we may need to do (e.g. write, unseal, etc).
+       */
+      listener "tcp" {
+        address = "127.0.0.1:8200"
+        tls_disable = 1
+      }
+
+      /*
+       * This gives the docker containers that will be running on this
+       * host, access to the vault service from within the container.
+       */
+      listener "tcp" {
+        address = "172.17.0.1:8200"
+        tls_disable = 1
+      }
+
+- name: copy vault server script
+  copy:
+    dest: '/mnt/vault-0.6.1/vault-server'
+    owner: root
+    group: root
+    mode: 0755
+    content: |
+      #!/bin/sh
+      export GOMAXPROCS=$(nproc)
+      /mnt/vault-0.6.1/vault server -config=/mnt/vault-0.6.1/config.hcl
+
+- name: copy vault systemd service file
+  copy:
+    dest: /etc/systemd/system/vault.service
+    owner: root
+    group: root
+    mode: 0755
+    content: |
+      [Unit]
+      Description=illumos CI Vault Server
+      After=network.target
+
+      [Service]
+      ExecStart=/mnt/vault-0.6.1/vault-server
+
+      [Install]
+      WantedBy=default.target
